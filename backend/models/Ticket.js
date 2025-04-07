@@ -42,6 +42,25 @@ const TicketSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  language: {
+    type: String,
+    enum: ['en', 'es', 'fr', 'zh', 'ar', 'auto'],
+    default: 'auto'
+  },
+  feedbackProvided: {
+    type: Boolean,
+    default: false
+  },
+  feedbackRating: {
+    type: Number,
+    min: 1,
+    max: 5,
+    default: null
+  },
+  feedbackComments: {
+    type: String,
+    default: ''
+  },
   messages: [
     {
       sender: {

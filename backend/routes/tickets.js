@@ -31,10 +31,11 @@ router.post('/', auth, async (req, res) => {
     // Save ticket
     const ticket = await newTicket.save();
 
-    // Generate AI response using the AI service
+    // Generate AI response using the AI service with NLP capabilities
     setTimeout(async () => {
       try {
-        const aiResponse = await generateAIResponse(description, category);
+        // Pass user ID to maintain conversation context
+        const aiResponse = await generateAIResponse(description, category, req.user.id);
         
         ticket.aiResponded = true;
         ticket.aiResponse = aiResponse;
@@ -205,11 +206,12 @@ router.post('/:id/messages', auth, async (req, res) => {
     
     await ticket.save();
     
-    // Generate AI response for patient messages using the AI service
+    // Generate AI response for patient messages using the AI service with NLP capabilities
     if (req.user.role === 'patient') {
       setTimeout(async () => {
         try {
-          const aiResponse = await generateAIResponse(content, ticket.category);
+          // Pass user ID to maintain conversation context
+          const aiResponse = await generateAIResponse(content, ticket.category, req.user.id);
           
           ticket.messages.push({
             isAI: true,
