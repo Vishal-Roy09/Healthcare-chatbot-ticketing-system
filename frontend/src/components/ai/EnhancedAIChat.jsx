@@ -111,12 +111,27 @@ const EnhancedAIChat = ({ ticketId, category }) => {
       }
       
       // Process with enhanced AI
-      const aiRes = await api.post('/api/enhanced-ai/analyze', {
-        message,
-        category,
-        ticketId
-      });
-      
+      let aiRes;
+      try {
+        aiRes = await api.post('/api/enhanced-ai/analyze', {
+          message,
+          category,
+          ticketId
+        });
+        
+        // Validate AI response
+        if (!aiRes?.data?.textResponse) {
+          throw new Error('No response received from AI service');
+        }
+      } catch (error) {
+        // Handle network errors and timeouts
+        if (!error.response) {
+          throw new Error('Network error: Please check your internet connection');
+        }
+        // Handle API errors
+        throw new Error(error.response?.data?.msg || 'Failed to get AI response');
+      }
+
       // Add AI response to messages
       const aiMessage = {
         isAI: true,
@@ -143,7 +158,26 @@ const EnhancedAIChat = ({ ticketId, category }) => {
       setLoading(false);
     } catch (err) {
       console.error('Error sending message:', err);
-      setError('Failed to send message. Please try again.');
+      
+      // Provide more detailed error message to the user
+      let errorMessage = 'Failed to send message. Please try again.';
+      
+      // Check if the error has a response from the server
+      if (err.response && err.response.data) {
+        errorMessage = `Error: ${err.response.data.msg || err.response.data}`;
+      } else if (err.message) {
+        errorMessage = `Error: ${err.message}`;
+      }
+      
+      // Add the error message to the chat as a system message
+      setMessages(prev => [...prev, {
+        isAI: true,
+        content: `⚠️ ${errorMessage}`,
+        timestamp: new Date().toISOString(),
+        isWarning: true
+      }]);
+      
+      setError(errorMessage);
       setLoading(false);
     }
   };

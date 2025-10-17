@@ -4,6 +4,8 @@ const { auth, isHealthcareProvider } = require('../middleware/auth');
 const Ticket = require('../models/Ticket');
 const User = require('../models/User');
 const { generateAIResponse } = require('../services/aiService');
+const { isGptAvailable, enhanceResponseWithGpt, handleUnknownQuery } = require('../services/gptService');
+const { generateEnhancedAIResponse } = require('../services/enhancedAIService');
 
 // @route   POST /api/tickets
 // @desc    Create a new ticket
@@ -34,8 +36,44 @@ router.post('/', auth, async (req, res) => {
     // Generate AI response using the AI service with NLP capabilities
     setTimeout(async () => {
       try {
-        // Pass user ID to maintain conversation context
-        const aiResponse = await generateAIResponse(description, category, req.user.id);
+        // Get user preferences
+        const user = await User.findById(req.user.id);
+        const preferredLanguage = user?.preferredLanguage || 'en';
+        
+        let aiResponse;
+        
+        // Try to use enhanced AI with GPT if available
+        try {
+          if (isGptAvailable()) {
+            console.log('Using GPT-enhanced response generation');
+            
+            // Use the enhanced AI service which incorporates GPT
+            const options = {
+              preferredLanguage,
+              conversationHistory: ticket.messages.map(msg => ({
+                content: msg.content,
+                isAI: msg.isAI
+              }))
+            };
+            
+            // Generate enhanced response with GPT
+            const enhancedResponse = await generateEnhancedAIResponse(
+              description,
+              category,
+              req.user.id,
+              options
+            );
+            
+            aiResponse = enhancedResponse.textResponse;
+          } else {
+            // Fall back to basic AI response
+            aiResponse = await generateAIResponse(description, category, req.user.id, preferredLanguage);
+          }
+        } catch (gptError) {
+          console.error('Error using GPT service:', gptError.message);
+          // Fall back to basic AI response
+          aiResponse = await generateAIResponse(description, category, req.user.id, preferredLanguage);
+        }
         
         ticket.aiResponded = true;
         ticket.aiResponse = aiResponse;
@@ -166,10 +204,10 @@ router.put('/:id', auth, async (req, res) => {
   }
 });
 
-// @route   POST /api/tickets/:id/messages
-// @desc    Add message to ticket
+// @route   POST /api/tickets/:id/message
+// @desc    Add a message to a ticket with GPT-enhanced responses
 // @access  Private
-router.post('/:id/messages', auth, async (req, res) => {
+router.post('/:id/message', auth, async (req, res) => {
   try {
     const { content } = req.body;
     
@@ -183,55 +221,85 @@ router.post('/:id/messages', auth, async (req, res) => {
       return res.status(404).json({ msg: 'Ticket not found' });
     }
     
-    // Check if user is authorized to add message to this ticket
-    if (
-      ticket.user.toString() !== req.user.id && 
-      req.user.role !== 'healthcare_provider' && 
-      req.user.role !== 'admin' &&
-      (!ticket.assignedTo || ticket.assignedTo.toString() !== req.user.id)
-    ) {
+    // Check if user is authorized to add message
+    if (ticket.user.toString() !== req.user.id && 
+        (!ticket.assignedTo || ticket.assignedTo.toString() !== req.user.id) && 
+        req.user.role !== 'admin') {
       return res.status(401).json({ msg: 'Not authorized to add message to this ticket' });
     }
     
-    // Add message
-    const newMessage = {
+    // Add user message
+    ticket.messages.push({
       sender: req.user.id,
       content,
       isAI: false,
       timestamp: Date.now()
-    };
+    });
     
-    ticket.messages.push(newMessage);
-    ticket.status = ticket.status === 'closed' ? 'open' : ticket.status;
+    // Update ticket status if it was closed
+    if (ticket.status === 'closed') {
+      ticket.status = 'reopened';
+    }
     
+    ticket.updatedAt = Date.now();
     await ticket.save();
     
-    // Generate AI response for patient messages using the AI service with NLP capabilities
-    if (req.user.role === 'patient') {
-      setTimeout(async () => {
+    // Generate AI response
+    setTimeout(async () => {
+      try {
+        // Get user preferences
+        const user = await User.findById(req.user.id);
+        const preferredLanguage = user?.preferredLanguage || 'en';
+        
+        let aiResponse;
+        
+        // Try to use enhanced AI with GPT if available
         try {
-          // Pass user ID to maintain conversation context
-          const aiResponse = await generateAIResponse(content, ticket.category, req.user.id);
-          
-          ticket.messages.push({
-            isAI: true,
-            content: aiResponse,
-            timestamp: Date.now()
-          });
-          
-          await ticket.save();
-        } catch (err) {
-          console.error('Error generating AI response:', err);
+          if (isGptAvailable()) {
+            console.log('Using GPT-enhanced response generation for ticket message');
+            
+            // Format conversation history for context
+            const conversationHistory = ticket.messages.map(msg => ({
+              content: msg.content,
+              isAI: msg.isAI
+            }));
+            
+            // Use GPT to generate or enhance response
+            if (ticket.category) {
+              // Get basic response first
+              const basicResponse = await generateAIResponse(content, ticket.category, req.user.id, preferredLanguage);
+              // Enhance it with GPT
+              aiResponse = await enhanceResponseWithGpt(basicResponse, content, ticket.category);
+            } else {
+              // For unknown categories, let GPT handle it directly
+              aiResponse = await handleUnknownQuery(content);
+            }
+          } else {
+            // Fall back to basic AI response
+            aiResponse = await generateAIResponse(content, ticket.category, req.user.id, preferredLanguage);
+          }
+        } catch (gptError) {
+          console.error('Error using GPT service:', gptError.message);
+          // Fall back to basic AI response
+          aiResponse = await generateAIResponse(content, ticket.category, req.user.id, preferredLanguage);
         }
-      }, 1000);
-    }
+        
+        ticket.messages.push({
+          isAI: true,
+          content: aiResponse,
+          timestamp: Date.now()
+        });
+        
+        ticket.updatedAt = Date.now();
+        await ticket.save();
+      } catch (err) {
+        console.error('Error generating AI response:', err);
+      }
+    }, 1000);
     
     res.json(ticket);
   } catch (err) {
     console.error(err.message);
-    if (err.kind === 'ObjectId') {
-      return res.status(404).json({ msg: 'Ticket not found' });
-    }
     res.status(500).send('Server error');
   }
 });

@@ -55,18 +55,18 @@ export const AuthProvider = ({ children }) => {
       console.error('Registration error:', err);
       if (err.response) {
         console.error('Error response:', err.response.data);
-        setError(err.response.data.msg || 'Registration failed');
+        const errorMsg = err.response.data.msg;
+        if (errorMsg.includes('already exists') || errorMsg.includes('already in use')) {
+          setError('This email is already registered. Please use a different email.');
+        } else {
+          setError(errorMsg || 'Registration failed. Please check your information.');
+        }
       } else if (err.request) {
         console.error('Error request:', err.request);
-        // Check if the error is related to MongoDB connection
-        if (err.message && err.message.includes('ECONNREFUSED')) {
-          setError('Database connection error. Please make sure MongoDB is installed and running.');
-        } else {
-          setError('Network error. Please check if the server is running.');
-        }
+        setError('Unable to connect to server. Please check if the server is running.');
       } else {
         console.error('Error message:', err.message);
-        setError('Registration failed: ' + err.message);
+        setError('An unexpected error occurred during registration.');
       }
       setLoading(false);
       return false;
@@ -84,7 +84,14 @@ export const AuthProvider = ({ children }) => {
       await loadUser();
       return true;
     } catch (err) {
-      setError(err.response?.data?.msg || 'Login failed');
+      console.error('Login error:', err);
+      if (err.response) {
+        setError(err.response.data.msg || 'Invalid credentials');
+      } else if (err.request) {
+        setError('Unable to connect to server. Please check if the server is running.');
+      } else {
+        setError('An unexpected error occurred during login.');
+      }
       setLoading(false);
       return false;
     }

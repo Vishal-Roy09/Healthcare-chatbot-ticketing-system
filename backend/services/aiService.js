@@ -1,99 +1,164 @@
-/*
- * Enhanced AI Service for TicketHub with NLP capabilities
+/**
+ * Enhanced AI Service for TicketHub Healthcare Chatbot
+ * ====================================================
  * 
- * This service provides natural language processing for the healthcare chatbot.
- * It uses the 'natural' library for NLP features like tokenization, stemming,
- * classification, and sentiment analysis to better understand and respond to patient inquiries.
+ * WHAT THIS FILE DOES:
+ * This service powers the AI chatbot that automatically responds to patient inquiries.
+ * It analyzes messages to understand what patients are asking about and provides helpful responses.
  * 
- * Features:
- * - Intent classification
- * - Entity recognition
- * - Sentiment analysis
- * - Conversation context management
- * - Multi-language support
- * - Feedback learning system
+ * KEY FEATURES:
+ * - Understands patient questions (intent classification)
+ * - Identifies important medical information in messages (entity recognition)
+ * - Detects if patients are upset or urgent cases (sentiment analysis)
+ * - Remembers previous conversations (conversation context)
+ * - Supports multiple languages (language support)
+ * - Improves over time based on feedback (learning system)
+ * 
+ * HOW TO USE THIS SERVICE:
+ * 1. Import the generateAIResponse function
+ * 2. Call it with the patient's message
+ * 3. Get back an appropriate response
+ * 
+ * Example: const response = await generateAIResponse(message, category, userId, language);
  */
 
+// Import the natural language processing library
 const natural = require('natural');
 
-// Import language service for multi-language support
+// Import our custom language translation service
 const languageService = require('./languageService');
 
-// Initialize NLP components
+// Import our pre-defined training examples and responses
+const trainingData = require('./trainingData');
+
+/**
+ * STEP 1: SET UP THE AI TOOLS
+ * These tools help us understand and process patient messages
+ */
+
+// Tool to break messages into individual words
 const tokenizer = new natural.WordTokenizer();
+
+// Tool to reduce words to their base form (e.g., "running" → "run")
 const stemmer = natural.PorterStemmer;
+
+// Tool to categorize messages (e.g., "appointment request", "medication question")
 const classifier = new natural.BayesClassifier();
+
+// Tool to detect patient emotions (positive, negative, neutral)
 const Analyzer = natural.SentimentAnalyzer;
 const sentimentAnalyzer = new Analyzer("English", stemmer, "afinn");
 
-// Import training data from separate file for better organization
-const trainingData = require('./trainingData');
-
-// Train the classifier with our data
+/**
+ * STEP 2: TRAIN THE AI WITH EXAMPLES
+ * We teach the AI to recognize different types of patient questions
+ */
 trainingData.forEach(item => {
   classifier.addDocument(item.text, item.category);
 });
 
-// Train the model
+// Finalize the training process
 classifier.train();
 
-// Context management for conversations
+/**
+ * STEP 3: REMEMBER CONVERSATIONS WITH PATIENTS
+ * This helps the AI provide more personalized and contextual responses
+ */
 const conversationContexts = new Map();
 
 /**
- * Analyzes the message content to determine intent, extract entities, and assess sentiment
- * @param {string} message - The user's message
- * @returns {Object} Analysis results including intent, entities, and sentiment
+ * Analyzes a patient's message to understand what they need
+ * 
+ * This function breaks down the message to identify:
+ * - What the patient is asking for (intent)
+ * - Important medical information mentioned (entities)
+ * - How the patient is feeling (sentiment)
+ * - Whether this might be urgent (urgency detection)
+ * 
+ * @param {string} message - The patient's message text
+ * @returns {Object} Detailed analysis of the message
  */
 const analyzeMessage = (message) => {
-  // Tokenize the message
+  // STEP 1: Break the message into individual words
   const tokens = tokenizer.tokenize(message.toLowerCase());
   
-  // Stem the tokens for better matching
+  // STEP 2: Simplify words to their base form for better matching
+  // Example: "running" and "runs" both become "run"
   const stemmedTokens = tokens.map(token => stemmer.stem(token));
   
-  // Classify the message to determine intent
+  // STEP 3: Determine what type of question/request this is
+  // Examples: appointment request, medication question, symptom inquiry
   const classification = classifier.classify(message);
   
-  // Analyze sentiment (positive, negative, neutral)
+  // STEP 4: Analyze how the patient is feeling
   const sentimentScore = sentimentAnalyzer.getSentiment(tokens);
-  let sentiment = "neutral";
-  if (sentimentScore > 0.2) sentiment = "positive";
-  else if (sentimentScore < -0.2) sentiment = "negative";
   
-  // Determine urgency based on sentiment and specific urgent terms
-  const urgentTerms = ["emergency", "urgent", "immediately", "severe", "critical", "help", "now", "asap"];
+  // Convert numerical score to simple label
+  let sentiment = "neutral";
+  if (sentimentScore > 0.2) sentiment = "positive";      // Patient seems happy/satisfied
+  else if (sentimentScore < -0.2) sentiment = "negative"; // Patient seems upset/concerned
+  
+  // STEP 5: Check if this might be urgent or an emergency
+  const urgentTerms = ["emergency", "urgent", "immediately", "severe", 
+                      "critical", "help", "now", "asap"];
+  
+  // Look for urgent words in the message
   const hasUrgentTerms = tokens.some(token => urgentTerms.includes(token));
+  
+  // Message is urgent if it contains urgent terms OR has very negative sentiment
   const isUrgent = (sentiment === "negative" && sentimentScore < -0.5) || hasUrgentTerms;
   
-  // Enhanced entity recognition for medical terms
+  // STEP 6: Identify important medical information in the message
   const entities = {
+    // Find dates (appointments, symptom onset, etc)
     dates: tokens.filter(token => /\b\d{1,2}[\/\-]\d{1,2}([\/\-]\d{2,4})?\b/.test(token)),
-    medications: tokens.filter(token => /\b(pill|medication|medicine|prescription|drug|dose|tablet|capsule|antibiotic|inhaler|insulin|injection)s?\b/i.test(token)),
-    symptoms: tokens.filter(token => /\b(pain|ache|fever|cough|headache|nausea|dizz|swelling|rash|fatigue|tired|exhausted|vomit|diarrhea|constipation|bleed|breath|numb|itch|burn|sore)\w*\b/i.test(token)),
-    medicalConditions: tokens.filter(token => /\b(diabet|hypertension|asthma|arthritis|depression|anxiety|allerg|cancer|heart|stroke|infection|disease|disorder|syndrome)\w*\b/i.test(token)),
-    bodyParts: tokens.filter(token => /\b(head|chest|arm|leg|foot|hand|back|neck|shoulder|knee|ankle|wrist|stomach|throat|ear|eye|nose|skin|heart|lung|liver|kidney)s?\b/i.test(token))
+    
+    // Find medication mentions
+    medications: tokens.filter(token => 
+      /\b(pill|medication|medicine|prescription|drug|dose|tablet|capsule|antibiotic|inhaler|insulin|injection)s?\b/i.test(token)
+    ),
+    
+    // Find symptom descriptions
+    symptoms: tokens.filter(token => 
+      /\b(pain|ache|fever|cough|headache|nausea|dizz|swelling|rash|fatigue|tired|exhausted|vomit|diarrhea|constipation|bleed|breath|numb|itch|burn|sore)\w*\b/i.test(token)
+    ),
+    
+    // Find medical conditions
+    medicalConditions: tokens.filter(token => 
+      /\b(diabet|hypertension|asthma|arthritis|depression|anxiety|allerg|cancer|heart|stroke|infection|disease|disorder|syndrome)\w*\b/i.test(token)
+    ),
+    
+    // Find body parts mentioned
+    bodyParts: tokens.filter(token => 
+      /\b(head|chest|arm|leg|foot|hand|back|neck|shoulder|knee|ankle|wrist|stomach|throat|ear|eye|nose|skin|heart|lung|liver|kidney)s?\b/i.test(token)
+    )
   };
   
+  // Return the complete analysis
   return {
-    intent: classification,
-    entities,
-    tokens,
-    stemmedTokens,
+    intent: classification,         // What the patient wants
+    entities,                       // Medical information mentioned
+    tokens,                         // Individual words in the message
+    stemmedTokens,                  // Simplified word forms
     sentiment: {
-      score: sentimentScore,
-      label: sentiment,
-      isUrgent
+      score: sentimentScore,        // Numerical sentiment score
+      label: sentiment,             // Simple sentiment label (positive/negative/neutral)
+      isUrgent                      // Whether this might be urgent
     }
   };
 };
 
 /**
- * Updates or creates a conversation context for a user
- * @param {string} userId - The user's ID
- * @param {Object} context - Context information to store
+ * Updates or creates a conversation memory for a patient
+ * 
+ * This helps the AI remember previous interactions with this patient,
+ * allowing for more personalized and contextual responses over time.
+ * 
+ * @param {string} userId - The patient's unique identifier
+ * @param {Object} context - New information to remember about this conversation
  */
 const updateConversationContext = (userId, context) => {
+  // If this is our first conversation with this patient, create a new memory
   if (!conversationContexts.has(userId)) {
     conversationContexts.set(userId, { history: [] });
   }

@@ -105,7 +105,7 @@ const TicketDetail = () => {
 
     try {
       setSendingMessage(true);
-      await api.post(`/tickets/${id}/messages`, { content: message });
+      await api.post(`/tickets/${id}/message`, { content: message });
       setMessage('');
       
       // Fetch updated ticket data

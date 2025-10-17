@@ -1,49 +1,85 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const dotenv = require('dotenv');
+/**
+ * Main Server File for TicketHub API
+ * 
+ * This file sets up the Express server, connects to MongoDB,
+ * configures middleware, and defines API routes.
+ */
 
-// Load environment variables
+// Import required packages
+const express = require('express');  // Web framework for Node.js
+const mongoose = require('mongoose'); // MongoDB object modeling tool
+const cors = require('cors');        // Cross-Origin Resource Sharing middleware
+const dotenv = require('dotenv');    // Environment variable loader
+
+// Load environment variables from .env file
 dotenv.config();
 
-// Initialize Express app
+// Initialize Express application
 const app = express();
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// Configure Middleware
+app.use(cors());         // Enable CORS for all routes (allows frontend to communicate with API)
+app.use(express.json()); // Parse incoming JSON requests
 
-// Connect to MongoDB
+// Database Configuration
+// Get MongoDB connection string from environment variables or use local fallback
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/tickethub';
-// Ensure database name is specified in the connection string
-const connectionString = MONGO_URI.endsWith('/') ? `${MONGO_URI}tickethub` : MONGO_URI;
-console.log('Connecting to MongoDB with connection string:', connectionString);
-mongoose.connect(connectionString, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
-  .then(() => {
+
+// MongoDB connection options for better reliability and performance
+const mongoOptions = {
+  useNewUrlParser: true,      // Use new URL parser to avoid deprecation warnings
+  useUnifiedTopology: true,   // Use new server discovery and monitoring engine
+  serverSelectionTimeoutMS: 5000, // Timeout after 5 seconds if server selection fails
+  socketTimeoutMS: 45000,     // Close sockets after 45 seconds of inactivity
+  family: 4                   // Use IPv4, skip trying IPv6 for better compatibility
+};
+
+/**
+ * Connect to MongoDB Database
+ * 
+ * This function attempts to establish a connection to MongoDB using the provided
+ * connection string and options. If the connection fails, it provides helpful
+ * troubleshooting information and exits the process.
+ */
+const connectDB = async () => {
+  try {
+    console.log('Attempting to connect to MongoDB...');
+    await mongoose.connect(MONGO_URI, mongoOptions);
     console.log('MongoDB connected successfully');
-    // Initialize database with sample data if needed
-    // This is optional but can help ensure the database is properly set up
-  })
-  .catch(err => {
-    console.error('MongoDB connection error:', err);
-    console.error('Please make sure MongoDB is installed and running on your machine');
-  });
+  } catch (err) {
+    console.error('MongoDB connection error:', err.message);
+    console.error('Please ensure:');
+    console.error('1. MongoDB is installed and running on your machine');
+    console.error('2. The connection string in .env is correct');
+    console.error('3. MongoDB is listening on the default port (27017)');
+    // Exit process with failure
+    process.exit(1);
+  }
+};
+
+// Initialize database connection
+connectDB();
 
 
-// Define routes
+// Register API Routes
+// Authentication routes (login, register, user management)
 app.use('/api/auth', require('./routes/auth'));
+
+// Ticket management routes (create, update, list tickets)
 app.use('/api/tickets', require('./routes/tickets'));
 
-// Base route
+// Enhanced AI features (advanced chatbot capabilities)
+app.use('/api/enhanced-ai', require('./routes/enhancedAI'));
+
+// Base route - API health check endpoint
 app.get('/', (req, res) => {
   res.send('TicketHub API is running');
 });
 
-// Start server
+// Start the server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+  console.log(`🔗 API Base URL: http://localhost:${PORT}/api`);
 });
